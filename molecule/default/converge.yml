@@ -88,6 +88,10 @@
         aipscan_secret_key: "ea83b0fdfbf98803814f2e587a648afa3069941a7d89ec163797c30c29cd4910"
         aipscan_extra_envs:
           AIPSCAN_TEST_VAR: "molecule-test-value"
+        aipscan_celery_config: |
+          worker_concurrency = 1
+          worker_prefetch_multiplier = 1
+          worker_max_memory_per_child = 524_288  # 512 * 1024 = 512 MB
         aipscan_storage_sources:
           - name: "Demo Storage Service"
             url: "http://127.0.0.1:8000"

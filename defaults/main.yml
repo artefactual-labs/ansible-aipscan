@@ -34,6 +34,13 @@ aipscan_celery_db_port: 3306
 # Celery broker URL.
 aipscan_celery_broker_url: "amqp://guest@localhost/"
 
+# Optional contents for a celeryconfig.py file placed in the AIPscan
+# install directory. Leave empty (or undefined) to skip managing the file.
+# Config reference: https://docs.celeryq.dev/en/stable/userguide/configuration.html
+#
+# Note: only available in AIPscan 0.9.0a11 or newer.
+aipscan_celery_config: ""
+
 # Additional environment variables injected into the systemd EnvironmentFile.
 # Keys must be valid environment variable names, e.g.:
 #

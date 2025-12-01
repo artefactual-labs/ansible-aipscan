@@ -2,6 +2,8 @@
 - name: Verify deployment
   hosts: all
   gather_facts: true
+  vars_files:
+    - ../../defaults/main.yml
   tasks:
     - name: Determine environment file path (aipscan_environment)
       vars:
@@ -73,3 +75,25 @@
           ansible.builtin.assert:
             that: |
               "AIPSCAN_TEST_VAR=molecule-test-value" in (aipscan_env_content.content | b64decode | string)
+
+    - name: Confirm celeryconfig.py is created from variable
+      block:
+        - name: Stat celeryconfig.py
+          ansible.builtin.stat:
+            path: "{{ aipscan_install_dir }}/celeryconfig.py"
+          register: celeryconfig_stat
+        - name: Assert celeryconfig.py exists
+          ansible.builtin.assert:
+            that:
+              - celeryconfig_stat.stat.exists
+              - celeryconfig_stat.stat.size > 0
+        - name: Read celeryconfig.py
+          ansible.builtin.slurp:
+            src: "{{ aipscan_install_dir }}/celeryconfig.py"
+          register: celeryconfig_content
+        - name: Assert expected settings are present
+          ansible.builtin.assert:
+            that:
+              - "'worker_concurrency = 1' in (celeryconfig_content.content | b64decode | string)"
+              - "'worker_prefetch_multiplier = 1' in (celeryconfig_content.content | b64decode | string)"
+              - "'worker_max_memory_per_child = 524_288' in (celeryconfig_content.content | b64decode | string)"

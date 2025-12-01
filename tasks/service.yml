@@ -23,6 +23,17 @@
   notify:
     - "Restart AIPscan services"
 
+- name: "Write celeryconfig.py when provided"
+  ansible.builtin.copy:
+    content: "{{ aipscan_celery_config }}"
+    dest: "{{ aipscan_install_dir }}/celeryconfig.py"
+    owner: "{{ aipscan_user }}"
+    group: "{{ aipscan_group }}"
+    mode: "0644"
+  when: aipscan_celery_config | default('') | string | trim | length > 0
+  notify:
+    - "Restart AIPscan worker"
+
 - name: "Apply service configuration changes"
   ansible.builtin.meta: "flush_handlers"
 

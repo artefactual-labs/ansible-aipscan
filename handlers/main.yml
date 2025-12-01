@@ -23,3 +23,8 @@
     - "{{ aipscan_celery_systemd_unit_name }}"
   loop_control:
     label: "{{ item }}"
+
+- name: "Restart AIPscan worker"
+  ansible.builtin.systemd:
+    name: "{{ aipscan_celery_systemd_unit_name }}"
+    state: restarted

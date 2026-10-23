@@ -4,7 +4,8 @@ Installs [AIPscan] on Linux hosts using Ansible.
 
 ## Compatibility
 
-This role targets AIPscan v0.9.0 and newer.
+This role targets AIPscan v0.9.0 and newer. The Molecule test matrix covers
+Ubuntu 22.04, 24.04, and 26.04, plus Rocky Linux 9.
 
 > [!IMPORTANT]
 > For legacy deployments targeting AIPscan v0.8.0 or earlier, use the

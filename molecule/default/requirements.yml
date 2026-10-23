@@ -12,3 +12,5 @@ roles:
 collections:
   - name: community.mysql
     version: 4.0.1
+  - name: ansible.mysql
+    version: 5.2.0

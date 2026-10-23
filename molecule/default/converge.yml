@@ -83,7 +83,7 @@
 
   tasks:
     - name: Create MySQL 8.4 accounts on Ubuntu 26.04
-      community.mysql.mysql_user:
+      ansible.mysql.mysql_user:
         name: "{{ item.name }}"
         host: "{{ item.host }}"
         plugin: caching_sha2_password

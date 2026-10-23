@@ -34,17 +34,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        scenario: [default]
         distro:
           - rockylinux9
           - ubuntu2204
           - ubuntu2404
+        include:
+          - distro: ubuntu2404
+            scenario: upgrade
     steps:
       - name: Check out code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       - name: Install uv
         uses: astral-sh/setup-uv@ed21f2f24f8dd64503750218de024bcf64c7250a # v7.1.5
       - name: Run Molecule tests
-        run: make test
+        run: make test SCENARIO=${{ matrix.scenario }}
         env:
           PY_COLORS: "1"
           ANSIBLE_FORCE_COLOR: "1"

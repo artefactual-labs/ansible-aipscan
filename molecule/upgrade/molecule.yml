@@ -1,0 +1,39 @@
+role_name_check: 1
+
+dependency:
+  name: galaxy
+  options:
+    role-file: ./molecule/default/requirements.yml
+    ignore-errors: false
+    force: true
+
+driver:
+  name: docker
+
+platforms:
+  - name: aipscan-upgrade
+    # The reference RabbitMQ Erlang repository supplies AMD64 packages.
+    platform: "${MOLECULE_PLATFORM:-linux/amd64}"
+    pull: true
+    image: "geerlingguy/docker-${MOLECULE_DISTRO:-ubuntu2204}-ansible:latest"
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    privileged: true
+    pre_build_image: true
+
+provisioner:
+  name: ansible
+  playbooks:
+    prepare: prepare.yml
+    converge: ../default/converge.yml
+    side_effect: side_effect.yml
+  inventory:
+    group_vars:
+      all:
+        aipscan_version: "0.9.0rc2"
+        aipscan_python_version: ""
+
+verifier:
+  name: ansible

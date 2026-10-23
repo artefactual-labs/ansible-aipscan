@@ -1,0 +1,44 @@
+---
+- name: Verify the upgraded application
+  ansible.builtin.import_playbook: ../default/verify.yml
+
+- name: Verify the runtime upgrade and service restarts
+  hosts: all
+  become: true
+  vars_files:
+    - ../../defaults/main.yml
+  tasks:
+    - name: Read the upgraded runtime and package version
+      ansible.builtin.command:
+        argv:
+          - "{{ aipscan_virtualenv }}/bin/python"
+          - "-c"
+          - "import json, sys, importlib.metadata; print(json.dumps({'python': list(sys.version_info[:3]), 'version': importlib.metadata.version('aipscan')}))"
+      register: upgrade_after_runtime
+      changed_when: false
+
+    - name: Read the original service invocations
+      ansible.builtin.slurp:
+        src: /tmp/aipscan-upgrade-before.json
+      register: upgrade_before_file
+
+    - name: Read the upgraded service invocations
+      ansible.builtin.command:
+        argv: [systemctl, show, "{{ item }}", --property=InvocationID, --value]
+      loop: [aipscan, aipscan-worker]
+      register: upgrade_after_services
+      changed_when: false
+
+    - name: Check runtime, package, and service upgrades
+      vars:
+        before: "{{ upgrade_before_file.content | b64decode | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - (upgrade_after_runtime.stdout | from_json).python == [3, 15, 1]
+          - (upgrade_after_runtime.stdout | from_json).version == '0.9.0rc2'
+          - before[0] | length > 0
+          - before[1] | length > 0
+          - upgrade_after_services.results[0].stdout | length > 0
+          - upgrade_after_services.results[1].stdout | length > 0
+          - upgrade_after_services.results[0].stdout != before[0]
+          - upgrade_after_services.results[1].stdout != before[1]

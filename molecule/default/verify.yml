@@ -5,6 +5,19 @@
   vars_files:
     - ../../defaults/main.yml
   tasks:
+    - name: Confirm the Ubuntu 26.04 broker responds
+      ansible.builtin.command:
+        argv: [rabbitmq-diagnostics, --quiet, ping]
+      become: true
+      register: rabbitmq_health
+      changed_when: false
+      retries: 5
+      delay: 2
+      until: rabbitmq_health.rc == 0
+      when:
+        - ansible_facts.distribution == 'Ubuntu'
+        - ansible_facts.distribution_release == 'resolute'
+
     - name: Determine environment file path (aipscan_environment)
       vars:
         candidate_env_files:

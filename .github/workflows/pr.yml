@@ -39,6 +39,7 @@ jobs:
           - rockylinux9
           - ubuntu2204
           - ubuntu2404
+          - ubuntu2604
         include:
           - distro: ubuntu2404
             scenario: upgrade

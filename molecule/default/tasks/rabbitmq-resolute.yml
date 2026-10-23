@@ -1,0 +1,28 @@
+---
+# RabbitMQ documents Noble repositories for Resolute. The pinned external role
+# hardcodes the host's release as the suite, so it cannot express this mapping.
+# Ubuntu 26.04 supplies Erlang 27, supported by the same RabbitMQ pin as the
+# other test platforms; no external Erlang repository is needed here.
+# https://www.rabbitmq.com/docs/install-debian
+# https://www.rabbitmq.com/docs/which-erlang
+- name: Add RabbitMQ's Noble repository on Resolute
+  ansible.builtin.deb822_repository:
+    name: rabbitmq
+    types: deb
+    uris: https://deb1.rabbitmq.com/rabbitmq-server/ubuntu/noble
+    suites: noble
+    components: main
+    signed_by: https://keys.openpgp.org/vks/v1/by-fingerprint/0A9AF2115F4687BD29803A206B73A36E6026DFCA
+  register: rabbitmq_resolute_repository
+
+- name: Install RabbitMQ with Ubuntu's Erlang packages
+  ansible.builtin.apt:
+    name: "rabbitmq-server={{ rabbitmq_version }}-1"
+    state: present
+    update_cache: "{{ rabbitmq_resolute_repository.changed }}"
+
+- name: Enable and start RabbitMQ
+  ansible.builtin.systemd:
+    name: rabbitmq-server
+    enabled: true
+    state: started

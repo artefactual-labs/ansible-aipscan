@@ -1,0 +1,49 @@
+---
+- name: Install the previous release
+  ansible.builtin.import_playbook: ../default/converge.yml
+  vars:
+    aipscan_version: "0.9.0rc1"
+    aipscan_python_version: "3.14"
+
+- name: Record the deployment before upgrading
+  hosts: all
+  become: true
+  vars_files:
+    - ../../defaults/main.yml
+  tasks:
+    - name: Read the previous runtime and package version
+      ansible.builtin.command:
+        argv:
+          - "{{ aipscan_virtualenv }}/bin/python"
+          - "-c"
+          - "import json, sys, importlib.metadata; print(json.dumps({'python': list(sys.version_info[:2]), 'version': importlib.metadata.version('aipscan')}))"
+      register: upgrade_before_runtime
+      changed_when: false
+
+    - name: Check the starting deployment
+      ansible.builtin.assert:
+        that:
+          - (upgrade_before_runtime.stdout | from_json).python == [3, 14]
+          - (upgrade_before_runtime.stdout | from_json).version == '0.9.0rc1'
+
+    # Reproduce bytecode left behind by older versions of the role.
+    - name: Create root-owned migration bytecode like an older deployment
+      ansible.builtin.command:
+        argv:
+          - "{{ aipscan_virtualenv }}/bin/python"
+          - "-c"
+          - "import compileall, pathlib, shutil, AIPscan; root = pathlib.Path(AIPscan.__file__).parent / 'migrations'; [shutil.rmtree(path) for path in root.rglob('__pycache__')]; compileall.compile_dir(root, force=True, quiet=1)"
+      changed_when: true
+
+    - name: Read service invocation IDs
+      ansible.builtin.command:
+        argv: [systemctl, show, "{{ item }}", --property=InvocationID, --value]
+      loop: [aipscan, aipscan-worker]
+      register: upgrade_before_services
+      changed_when: false
+
+    - name: Save the original service invocations
+      ansible.builtin.copy:
+        content: "{{ upgrade_before_services.results | map(attribute='stdout') | list | to_json }}"
+        dest: /tmp/aipscan-upgrade-before.json
+        mode: "0600"

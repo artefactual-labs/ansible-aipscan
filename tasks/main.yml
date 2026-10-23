@@ -65,6 +65,8 @@
   ansible.builtin.command:
     argv: ["{{ aipscan_virtualenv }}/bin/flask", "db", "upgrade"]
   environment: "{{ aipscan_cli_env }}"
+  become: true
+  become_user: "{{ aipscan_user }}"
   changed_when: false
   tags: ["database"]
 
@@ -86,6 +88,8 @@
       - "--default"
       - "--wait"
   environment: "{{ aipscan_cli_env }}"
+  become: true
+  become_user: "{{ aipscan_user }}"
   loop: "{{ aipscan_storage_sources }}"
   loop_control:
     label: "{{ item.name }}"

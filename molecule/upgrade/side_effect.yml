@@ -1,0 +1,102 @@
+---
+- name: Check a package change without replacing Python
+  hosts: all
+  become: true
+  vars:
+    aipscan_secret_key: "ea83b0fdfbf98803814f2e587a648afa3069941a7d89ec163797c30c29cd4910"
+    aipscan_extra_envs:
+      AIPSCAN_TEST_VAR: "molecule-test-value"
+  tasks:
+    - name: Reproduce root-owned bytecode before a package-only change
+      ansible.builtin.command:
+        argv:
+          - /usr/share/archivematica/virtualenvs/AIPscan/bin/python
+          - "-c"
+          - "import compileall, pathlib, shutil, AIPscan; root = pathlib.Path(AIPscan.__file__).parent / 'migrations'; [shutil.rmtree(path) for path in root.rglob('__pycache__')]; compileall.compile_dir(root, force=True, quiet=1)"
+      changed_when: true
+
+    - name: Read service invocations before the package change
+      ansible.builtin.command:
+        argv: [systemctl, show, "{{ item }}", --property=InvocationID, --value]
+      loop: [aipscan, aipscan-worker]
+      register: package_before_services
+      changed_when: false
+
+    - name: Install the previous package on the new Python
+      ansible.builtin.include_role:
+        name: artefactual.aipscan
+      vars:
+        aipscan_version: "0.9.0rc1"
+        aipscan_python_version: "3.15.1"
+
+    - name: Read service invocations after the package change
+      ansible.builtin.command:
+        argv: [systemctl, show, "{{ item }}", --property=InvocationID, --value]
+      loop: [aipscan, aipscan-worker]
+      register: package_after_services
+      changed_when: false
+
+    - name: Check package changes restart both services without replacing Python
+      ansible.builtin.assert:
+        that:
+          - not aipscan_recreate_virtualenv
+          - package_before_services.results[0].stdout | length > 0
+          - package_before_services.results[1].stdout | length > 0
+          - package_after_services.results[0].stdout | length > 0
+          - package_after_services.results[1].stdout | length > 0
+          - package_after_services.results[0].stdout != package_before_services.results[0].stdout
+          - package_after_services.results[1].stdout != package_before_services.results[1].stdout
+
+    - name: Restore the target package
+      ansible.builtin.include_role:
+        name: artefactual.aipscan
+      vars:
+        aipscan_version: "0.9.0rc2"
+        aipscan_python_version: "3.15.1"
+
+    - name: Create an unrelated directory with a file to preserve
+      ansible.builtin.file:
+        path: /opt/aipscan-upgrade-guard/environment
+        state: directory
+        mode: "0755"
+
+    - name: Write the unrelated file
+      ansible.builtin.copy:
+        content: "keep this file"
+        dest: /opt/aipscan-upgrade-guard/environment/sentinel
+        mode: "0644"
+
+    - name: Attempt installation over an unrelated directory
+      block:
+        - name: Run installation with the unrelated directory as virtualenv
+          ansible.builtin.include_role:
+            name: artefactual.aipscan
+            tasks_from: install
+          vars:
+            aipscan_version: "0.9.0rc2"
+            aipscan_python_version: "3.15.1"
+            aipscan_virtualenv: /opt/aipscan-upgrade-guard/environment
+      rescue:
+        - name: Confirm installation rejected the directory
+          ansible.builtin.assert:
+            that:
+              - "'Refusing to replace' in ansible_failed_result.msg"
+        - name: Record the expected refusal
+          ansible.builtin.set_fact:
+            upgrade_guard_rejected: true
+
+    - name: Read the preserved file
+      ansible.builtin.slurp:
+        src: /opt/aipscan-upgrade-guard/environment/sentinel
+      register: upgrade_guard_sentinel
+
+    - name: Check the unrelated directory was protected
+      ansible.builtin.assert:
+        that:
+          - upgrade_guard_rejected | default(false)
+          - upgrade_guard_sentinel.content | b64decode == 'keep this file'
+
+    - name: Remove the directory used for the guard check
+      ansible.builtin.file:
+        path: /opt/aipscan-upgrade-guard
+        state: absent

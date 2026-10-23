@@ -2,6 +2,7 @@ lint:
 	uv run ansible-lint
 
 test: DISTRO ?= ubuntu2204
+test: SCENARIO ?= default
 test: TAGS ?= all
 test: DESTROY ?= always
 test:
@@ -18,7 +19,7 @@ test:
 	# - verify
 	# - cleanup
 	# - destroy
-	MOLECULE_DISTRO=$(DISTRO) uv run molecule test --destroy=$(DESTROY) -- --tags=$(TAGS)
+	MOLECULE_DISTRO=$(DISTRO) uv run molecule test --scenario-name=$(SCENARIO) --destroy=$(DESTROY) -- --tags=$(TAGS)
 
 pytest: ARGS ?=
 pytest:

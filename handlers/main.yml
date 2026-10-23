@@ -14,10 +14,15 @@
     restorecon_result.stdout is defined
     and (restorecon_result.stdout | trim | length) > 0
 
+- name: "Discover AIPscan services before restarting"
+  ansible.builtin.service_facts:
+  listen: "Restart AIPscan services"
+
 - name: "Restart AIPscan services"
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
+  when: (item ~ '.service') in ansible_facts.services
   loop:
     - "{{ aipscan_gunicorn_systemd_unit_name }}"
     - "{{ aipscan_celery_systemd_unit_name }}"

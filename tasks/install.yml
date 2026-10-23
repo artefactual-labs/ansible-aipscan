@@ -7,6 +7,128 @@
     group: "{{ aipscan_group }}"
     mode: "0755"
 
+# Capture the old target before uv can update managed Python symlinks.
+- name: "Inspect existing virtualenv interpreter"
+  ansible.builtin.command:
+    argv:
+      - "{{ aipscan_virtualenv }}/bin/python"
+      - "-c"
+      - "import os, sys; assert sys.prefix != sys.base_prefix; print(os.path.realpath(sys._base_executable))"
+  register: aipscan_existing_python
+  changed_when: false
+  failed_when: false
+  become: true
+  become_user: "{{ aipscan_user }}"
+
+# Resolve through uv as the service user, whose managed Python directory is
+# also used when creating the virtualenv. Do this before stopping services.
+- name: "Ensure requested managed Python is installed"
+  ansible.builtin.command:
+    argv:
+      - "{{ uv_executable_path }}"
+      - "python"
+      - "install"
+      - "--no-bin"
+      - "{{ aipscan_python_version }}"
+  changed_when: false
+  become: true
+  become_user: "{{ aipscan_user }}"
+
+- name: "Find requested managed Python"
+  ansible.builtin.command:
+    argv:
+      - "{{ uv_executable_path }}"
+      - "python"
+      - "find"
+      - "--system"
+      - "--managed-python"
+      - "--no-project"
+      - "{{ aipscan_python_version }}"
+  register: aipscan_python_lookup
+  changed_when: false
+  become: true
+  become_user: "{{ aipscan_user }}"
+
+- name: "Resolve managed Python executable"
+  ansible.builtin.command:
+    argv:
+      - "{{ aipscan_python_lookup.stdout | trim }}"
+      - "-c"
+      - "import os, sys; print(os.path.realpath(sys.executable))"
+  register: aipscan_target_python
+  changed_when: false
+  become: true
+  become_user: "{{ aipscan_user }}"
+
+- name: "Determine whether virtualenv replacement is required"
+  ansible.builtin.set_fact:
+    aipscan_recreate_virtualenv: >-
+      {{ aipscan_existing_python.rc != 0 or
+         aipscan_existing_python.stdout | trim != aipscan_target_python.stdout | trim }}
+
+# Keep uv's protection against clearing an unrelated directory when privileged
+# cleanup is needed. Empty directories are safe, including incomplete creations.
+- name: "Inspect virtualenv directory before replacement"
+  ansible.builtin.stat:
+    path: "{{ aipscan_virtualenv }}"
+  register: aipscan_virtualenv_directory
+  when: aipscan_recreate_virtualenv
+
+- name: "Inspect virtualenv configuration before replacement"
+  ansible.builtin.stat:
+    path: "{{ aipscan_virtualenv }}/pyvenv.cfg"
+  register: aipscan_virtualenv_config
+  when: aipscan_recreate_virtualenv
+
+- name: "Check whether an uninitialized virtualenv directory is empty"
+  ansible.builtin.find:
+    paths: "{{ aipscan_virtualenv }}"
+    file_type: any
+    hidden: true
+    recurse: false
+  register: aipscan_virtualenv_contents
+  when:
+    - aipscan_recreate_virtualenv
+    - aipscan_virtualenv_directory.stat.isdir | default(false)
+    - not (aipscan_virtualenv_config.stat.isreg | default(false))
+
+- name: "Reject replacement of an unrelated directory"
+  ansible.builtin.assert:
+    that:
+      - >-
+        not aipscan_virtualenv_directory.stat.exists or
+        (aipscan_virtualenv_directory.stat.isdir | default(false) and
+         not (aipscan_virtualenv_directory.stat.islnk | default(false)) and
+         (aipscan_virtualenv_config.stat.isreg | default(false) or
+          (aipscan_virtualenv_contents.matched | default(-1) == 0 and
+           aipscan_virtualenv_contents.skipped_paths | default({}) | length == 0)))
+    fail_msg: "Refusing to replace {{ aipscan_virtualenv }}: expected a virtualenv or an empty directory."
+  when: aipscan_recreate_virtualenv
+
+- name: "Discover services before replacing virtualenv"
+  ansible.builtin.service_facts:
+  when: aipscan_recreate_virtualenv
+
+- name: "Stop existing AIPscan services before replacing virtualenv"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+  loop:
+    - "{{ aipscan_gunicorn_systemd_unit_name }}"
+    - "{{ aipscan_celery_systemd_unit_name }}"
+  when:
+    - aipscan_recreate_virtualenv
+    - (item ~ '.service') in ansible_facts.services
+
+# Migration commands may have created root-owned bytecode in the old venv.
+# Remove it with deployment privileges before uv recreates it as the app user.
+- name: "Remove virtualenv before replacing its interpreter"
+  ansible.builtin.file:
+    path: "{{ aipscan_virtualenv }}"
+    state: absent
+  when: aipscan_recreate_virtualenv
+  become: true
+
 - name: "Create virtualenv with uv"
   ansible.builtin.command:
     argv:
@@ -14,10 +136,36 @@
       - "venv"
       - "--no-project"
       - "--managed-python"
-      - "--python={{ aipscan_python_version }}"
-      - "--clear"
+      - "--python={{ aipscan_target_python.stdout | trim }}"
       - "{{ aipscan_virtualenv }}"
-    creates: "{{ aipscan_virtualenv }}/bin/python"
+  when: aipscan_recreate_virtualenv
+  changed_when: true
+  become: true
+  become_user: "{{ aipscan_user }}"
+  notify: "Restart AIPscan services"
+
+# Older deployments ran migrations as root, leaving bytecode that uv cannot
+# uninstall as the service user. Repair ownership without following symlinks.
+- name: "Ensure virtualenv contents belong to the service user"
+  ansible.builtin.file:
+    path: "{{ aipscan_virtualenv }}"
+    state: directory
+    owner: "{{ aipscan_user }}"
+    group: "{{ aipscan_group }}"
+    recurse: true
+    follow: false
+  become: true
+
+- name: "Read installed packages before installation"
+  ansible.builtin.command:
+    argv:
+      - "{{ uv_executable_path }}"
+      - "pip"
+      - "list"
+      - "--python={{ aipscan_virtualenv }}/bin/python"
+      - "--format=json"
+  register: aipscan_packages_before
+  changed_when: false
   become: true
   become_user: "{{ aipscan_user }}"
 
@@ -29,10 +177,27 @@
       - "install"
       - "--python={{ aipscan_virtualenv }}/bin/python"
       - "aipscan[server]=={{ aipscan_version }}"
-  register: aipscan_install_result
-  changed_when: "'Successfully installed' in aipscan_install_result.stdout"
+  changed_when: false
   become: true
   become_user: "{{ aipscan_user }}"
+
+# Compare structured package inventories instead of parsing uv's progress output.
+# This also detects dependency changes when the AIPscan version stays the same.
+- name: "Detect installed package changes"
+  ansible.builtin.command:
+    argv:
+      - "{{ uv_executable_path }}"
+      - "pip"
+      - "list"
+      - "--python={{ aipscan_virtualenv }}/bin/python"
+      - "--format=json"
+  register: aipscan_packages_after
+  changed_when: >-
+    aipscan_packages_before.stdout | from_json | sort(attribute='name') !=
+    aipscan_packages_after.stdout | from_json | sort(attribute='name')
+  become: true
+  become_user: "{{ aipscan_user }}"
+  notify: "Restart AIPscan services"
 
 - name: "Ensure AIPscan install and downloads directories exist"
   ansible.builtin.file:

@@ -60,6 +60,11 @@
     - role: artefactual.nginx
       tags: ["nginx"]
       vars:
+        # Rocky's packaged tmpfiles rule resets /var/log/nginx to root:root
+        # mode 0711 during later package installs, conflicting with this role's
+        # nginx:nginx mode 0755. Use a separate test log directory so Molecule
+        # can check idempotence without changing the upstream Nginx role.
+        nginx_log_dir: /var/log/nginx-molecule
         nginx_sites:
           aipscan:
             - listen 8057
